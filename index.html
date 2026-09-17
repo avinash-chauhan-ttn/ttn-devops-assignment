@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevOps Training | CI/CD Deployment</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div class="grid-bg" aria-hidden="true"></div>
+    <main class="panel">
+      <p class="eyebrow">AWS · S3 · CloudFront · GitHub Actions</p>
+      <h1>DevOps Training</h1>
+      <p class="status" id="status">CI/CD Deployment Successful</p>
+      <p class="version">Version: <span id="app-version">1.0</span></p>
+      <p class="note">Deployed automatically using GitHub Actions</p>
+
+      <ol class="pipeline" aria-label="CI/CD pipeline">
+        <li class="done">Code Push</li>
+        <li class="done">Test</li>
+        <li class="done">Build / Package</li>
+        <li class="done">Deploy</li>
+      </ol>
+
+      <footer>
+        <span id="build-meta">Loading build info…</span>
+      </footer>
+    </main>
+    <script src="js/main.js"></script>
+  </body>
+</html>

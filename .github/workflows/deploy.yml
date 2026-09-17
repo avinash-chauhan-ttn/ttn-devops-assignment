@@ -1,0 +1,102 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: ttn-devops-assignment
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run website tests
+        run: npm test
+
+  build:
+    name: Build / Package
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Package static site
+        run: npm run build
+      - name: Upload website package
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-package
+          path: dist/
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download website package
+        uses: actions/download-artifact@v4
+        with:
+          name: website-package
+          path: dist
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Provision S3 and CloudFront
+        run: |
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file infra/cloudformation.yaml \
+            --no-fail-on-empty-changeset \
+            --capabilities CAPABILITY_IAM
+      - name: Sync website to S3
+        id: sync
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" \
+            --output text)
+          DIST_ID=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" \
+            --output text)
+          URL=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontURL'].OutputValue" \
+            --output text)
+
+          aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public"
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=${DIST_ID}" >> "$GITHUB_OUTPUT"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.sync.outputs.distribution_id }}" \
+            --paths "/*"
+      - name: Publish website URL
+        run: |
+          echo "Website URL: ${{ steps.sync.outputs.url }}"
+          echo "## Deployed website" >> "$GITHUB_STEP_SUMMARY"
+          echo "CloudFront URL: ${{ steps.sync.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
