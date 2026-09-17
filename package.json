@@ -1,6 +1,6 @@
 {
   "name": "ttn-devops-assignment",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Static website deployed to Amazon S3 and CloudFront with GitHub Actions",
   "scripts": {
