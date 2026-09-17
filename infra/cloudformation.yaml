@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Public static website on S3, served through CloudFront.
+Description: Public static website hosted on Amazon S3.
 
 Resources:
   WebsiteBucket:
@@ -14,9 +14,6 @@ Resources:
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: index.html
-      Tags:
-        - Key: Project
-          Value: ttn-devops-assignment
 
   WebsiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -31,47 +28,10 @@ Resources:
             Action: s3:GetObject
             Resource: !Sub "${WebsiteBucket.Arn}/*"
 
-  WebsiteDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        Comment: TTN DevOps assignment website
-        DefaultRootObject: index.html
-        HttpVersion: http2
-        IPV6Enabled: true
-        PriceClass: PriceClass_100
-        Origins:
-          - Id: S3WebsiteOrigin
-            DomainName: !Sub "${WebsiteBucket}.s3-website-${AWS::Region}.amazonaws.com"
-            CustomOriginConfig:
-              HTTPPort: 80
-              HTTPSPort: 443
-              OriginProtocolPolicy: http-only
-        DefaultCacheBehavior:
-          TargetOriginId: S3WebsiteOrigin
-          ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods:
-            - GET
-            - HEAD
-          CachedMethods:
-            - GET
-            - HEAD
-          Compress: true
-          ForwardedValues:
-            QueryString: false
-            Cookies:
-              Forward: none
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
-
 Outputs:
   BucketName:
     Description: S3 bucket that stores the website
     Value: !Ref WebsiteBucket
-  DistributionId:
-    Description: CloudFront distribution ID
-    Value: !Ref WebsiteDistribution
-  CloudFrontURL:
-    Description: Public website URL
-    Value: !Sub "https://${WebsiteDistribution.DomainName}"
+  WebsiteURL:
+    Description: Public S3 website URL
+    Value: !GetAtt WebsiteBucket.WebsiteURL

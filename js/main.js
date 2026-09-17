@@ -10,13 +10,13 @@
     .then((response) => (response.ok ? response.json() : null))
     .then((info) => {
       if (!info) {
-        meta.textContent = "Served from Amazon S3 through CloudFront";
+        meta.textContent = "Served from Amazon S3";
         return;
       }
       const builtAt = info.builtAt ? new Date(info.builtAt).toUTCString() : "unknown";
       meta.textContent = `Build ${info.version} packaged ${builtAt}`;
     })
     .catch(() => {
-      meta.textContent = "Served from Amazon S3 through CloudFront";
+      meta.textContent = "Served from Amazon S3";
     });
 })();

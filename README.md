@@ -1,6 +1,6 @@
 # TTN DevOps Assignment
 
-Static website deployed to Amazon S3 and served publicly through CloudFront. Every push to `main` runs GitHub Actions: **Test → Build / Package → Deploy**.
+Static website deployed to a public Amazon S3 website bucket. Every push to `main` runs GitHub Actions: **Test → Build / Package → Deploy**.
 
 ## Pipeline
 
@@ -13,7 +13,7 @@ Test
     ↓
 Build / Package
     ↓
-Deploy to S3 + CloudFront
+Deploy to S3
 ```
 
 ## Local checks
@@ -25,9 +25,7 @@ npm run build
 
 ## GitHub secrets
 
-Configure these repository secrets before the first deploy:
-
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 
-The workflow provisions the S3 bucket and CloudFront distribution, then publishes the packaged site. The public URL is the CloudFront domain printed in the Actions job summary.
+The workflow creates a public S3 website bucket and uploads the packaged site. The public URL is printed in the Actions job summary.

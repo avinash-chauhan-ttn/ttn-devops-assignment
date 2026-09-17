@@ -10,7 +10,6 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  STACK_NAME: ttn-devops-assignment
 
 jobs:
   test:
@@ -63,65 +62,44 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Provision S3 and CloudFront
+      - name: Deploy website to S3
+        id: deploy
         run: |
           set -euo pipefail
-          aws sts get-caller-identity
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="ttn-devops-assignment-${ACCOUNT_ID}"
+          URL="http://${BUCKET}.s3-website-${AWS_REGION}.amazonaws.com"
 
-          STATUS=$(aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].StackStatus' \
-            --output text 2>/dev/null || echo "NONE")
-
-          if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "ROLLBACK_FAILED" ] || [ "$STATUS" = "CREATE_FAILED" ]; then
-            echo "Deleting failed stack in status ${STATUS}"
-            aws cloudformation delete-stack --stack-name "$STACK_NAME"
-            aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION"
           fi
 
-          if ! aws cloudformation deploy \
-            --stack-name "$STACK_NAME" \
-            --template-file infra/cloudformation.yaml \
-            --no-fail-on-empty-changeset; then
-            echo "::error::CloudFormation deploy failed. Recent stack events:"
-            aws cloudformation describe-stack-events \
-              --stack-name "$STACK_NAME" \
-              --query 'StackEvents[?contains(ResourceStatus, `FAILED`)].{Time:Timestamp,Resource:LogicalResourceId,Type:ResourceType,Reason:ResourceStatusReason}' \
-              --output json || true
-            FAIL_REASONS=$(aws cloudformation describe-stack-events \
-              --stack-name "$STACK_NAME" \
-              --query 'StackEvents[?contains(ResourceStatus, `FAILED`)].ResourceStatusReason' \
-              --output text || true)
-            echo "::error::${FAIL_REASONS}"
-            exit 1
-          fi
-      - name: Sync website to S3
-        id: sync
-        run: |
-          BUCKET=$(aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" \
-            --output text)
-          DIST_ID=$(aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" \
-            --output text)
-          URL=$(aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontURL'].OutputValue" \
-            --output text)
+          aws s3api put-public-access-block \
+            --bucket "$BUCKET" \
+            --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+          aws s3api put-bucket-website \
+            --bucket "$BUCKET" \
+            --website-configuration '{"IndexDocument":{"Suffix":"index.html"},"ErrorDocument":{"Key":"index.html"}}'
+
+          aws s3api put-bucket-policy --bucket "$BUCKET" --policy "{
+            \"Version\": \"2012-10-17\",
+            \"Statement\": [{
+              \"Sid\": \"PublicReadGetObject\",
+              \"Effect\": \"Allow\",
+              \"Principal\": \"*\",
+              \"Action\": \"s3:GetObject\",
+              \"Resource\": \"arn:aws:s3:::${BUCKET}/*\"
+            }]
+          }"
 
           aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public"
+
           echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
-          echo "distribution_id=${DIST_ID}" >> "$GITHUB_OUTPUT"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.sync.outputs.distribution_id }}" \
-            --paths "/*"
+          echo "::notice title=Website URL::${URL}"
+          echo "Website URL: ${URL}"
       - name: Publish website URL
         run: |
-          echo "Website URL: ${{ steps.sync.outputs.url }}"
           echo "## Deployed website" >> "$GITHUB_STEP_SUMMARY"
-          echo "CloudFront URL: ${{ steps.sync.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "S3 website URL: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
