@@ -64,41 +64,26 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Deploy website to S3
         id: deploy
+        env:
+          AWS_PAGER: ""
         run: |
           set -euo pipefail
-
-          run_aws() {
-            local label="$1"
-            shift
-            echo "=== ${label} ==="
-            local output
-            if ! output=$("$@" 2>&1); then
-              echo "$output"
-              echo "::error::${label} failed: ${output}"
-              exit 1
-            fi
-            echo "$output"
-          }
-
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           BUCKET="ttn-devops-assignment-${ACCOUNT_ID}"
-          URL="http://${BUCKET}.s3-website-${AWS_REGION}.amazonaws.com"
-          echo "Account ${ACCOUNT_ID}, bucket ${BUCKET}"
+          REST_URL="https://${BUCKET}.s3.${AWS_REGION}.amazonaws.com/index.html"
+          SITE_URL="http://${BUCKET}.s3-website-${AWS_REGION}.amazonaws.com"
+          echo "Account ${ACCOUNT_ID}"
+          echo "Bucket ${BUCKET}"
 
           if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            # us-east-1 rejects LocationConstraint; do not pass --region here.
-            run_aws "Create bucket" aws s3api create-bucket --bucket "$BUCKET"
+            aws s3api create-bucket --bucket "$BUCKET"
           fi
 
-          run_aws "Allow public access" aws s3api put-public-access-block \
+          aws s3api put-public-access-block \
             --bucket "$BUCKET" \
             --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
 
-          run_aws "Enable website hosting" aws s3api put-bucket-website \
-            --bucket "$BUCKET" \
-            --website-configuration '{"IndexDocument":{"Suffix":"index.html"},"ErrorDocument":{"Key":"index.html"}}'
-
-          run_aws "Set public read policy" aws s3api put-bucket-policy --bucket "$BUCKET" --policy "{
+          aws s3api put-bucket-policy --bucket "$BUCKET" --policy "{
             \"Version\": \"2012-10-17\",
             \"Statement\": [{
               \"Sid\": \"PublicReadGetObject\",
@@ -109,13 +94,19 @@ jobs:
             }]
           }"
 
-          run_aws "Upload website files" aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public"
+          aws s3 website "s3://${BUCKET}/" --index-document index.html --error-document index.html || echo "::warning::S3 website hosting could not be enabled; using the object URL instead."
+
+          aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public" --acl public-read || aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public"
 
           echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
-          echo "url=${URL}" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Website URL::${URL}"
-          echo "Website URL: ${URL}"
+          echo "url=${SITE_URL}" >> "$GITHUB_OUTPUT"
+          echo "rest_url=${REST_URL}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=S3 website URL::${SITE_URL}"
+          echo "::notice title=S3 object URL::${REST_URL}"
+          echo "S3 website URL: ${SITE_URL}"
+          echo "S3 object URL: ${REST_URL}"
       - name: Publish website URL
         run: |
           echo "## Deployed website" >> "$GITHUB_STEP_SUMMARY"
           echo "S3 website URL: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "S3 object URL: ${{ steps.deploy.outputs.rest_url }}" >> "$GITHUB_STEP_SUMMARY"
