@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Public static website on private S3, served through CloudFront.
+Description: Public static website on S3, served through CloudFront.
 
 Resources:
   WebsiteBucket:
@@ -7,27 +7,29 @@ Resources:
     Properties:
       BucketName: !Sub "ttn-devops-assignment-${AWS::AccountId}"
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
       Tags:
         - Key: Project
           Value: ttn-devops-assignment
 
-  WebsiteOriginAccessControl:
-    Type: AWS::CloudFront::OriginAccessControl
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
     Properties:
-      OriginAccessControlConfig:
-        Name: !Sub "ttn-devops-assignment-oac-${AWS::AccountId}"
-        Description: Allow CloudFront to read the website bucket
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
 
   WebsiteDistribution:
     Type: AWS::CloudFront::Distribution
@@ -40,13 +42,14 @@ Resources:
         IPV6Enabled: true
         PriceClass: PriceClass_100
         Origins:
-          - Id: WebsiteBucketOrigin
-            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
-            OriginAccessControlId: !GetAtt WebsiteOriginAccessControl.Id
-            S3OriginConfig:
-              OriginAccessIdentity: ""
+          - Id: S3WebsiteOrigin
+            DomainName: !Sub "${WebsiteBucket}.s3-website-${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
         DefaultCacheBehavior:
-          TargetOriginId: WebsiteBucketOrigin
+          TargetOriginId: S3WebsiteOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods:
             - GET
@@ -55,35 +58,12 @@ Resources:
             - GET
             - HEAD
           Compress: true
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponsePagePath: /index.html
-            ResponseCode: 200
-            ErrorCachingMinTTL: 10
-          - ErrorCode: 404
-            ResponsePagePath: /index.html
-            ResponseCode: 200
-            ErrorCachingMinTTL: 10
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
-
-  WebsiteBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref WebsiteBucket
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: AllowCloudFrontRead
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub "${WebsiteBucket.Arn}/*"
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebsiteDistribution}"
 
 Outputs:
   BucketName:

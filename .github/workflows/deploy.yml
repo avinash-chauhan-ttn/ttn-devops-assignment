@@ -65,11 +65,36 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Provision S3 and CloudFront
         run: |
-          aws cloudformation deploy \
+          set -euo pipefail
+          aws sts get-caller-identity
+
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "NONE")
+
+          if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "ROLLBACK_FAILED" ] || [ "$STATUS" = "CREATE_FAILED" ]; then
+            echo "Deleting failed stack in status ${STATUS}"
+            aws cloudformation delete-stack --stack-name "$STACK_NAME"
+            aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+          fi
+
+          if ! aws cloudformation deploy \
             --stack-name "$STACK_NAME" \
             --template-file infra/cloudformation.yaml \
-            --no-fail-on-empty-changeset \
-            --capabilities CAPABILITY_IAM
+            --no-fail-on-empty-changeset; then
+            echo "::error::CloudFormation deploy failed. Recent stack events:"
+            aws cloudformation describe-stack-events \
+              --stack-name "$STACK_NAME" \
+              --query 'StackEvents[?contains(ResourceStatus, `FAILED`)].{Time:Timestamp,Resource:LogicalResourceId,Type:ResourceType,Reason:ResourceStatusReason}' \
+              --output json || true
+            FAIL_REASONS=$(aws cloudformation describe-stack-events \
+              --stack-name "$STACK_NAME" \
+              --query 'StackEvents[?contains(ResourceStatus, `FAILED`)].ResourceStatusReason' \
+              --output text || true)
+            echo "::error::${FAIL_REASONS}"
+            exit 1
+          fi
       - name: Sync website to S3
         id: sync
         run: |
