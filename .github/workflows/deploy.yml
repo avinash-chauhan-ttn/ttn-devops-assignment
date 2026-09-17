@@ -66,23 +66,39 @@ jobs:
         id: deploy
         run: |
           set -euo pipefail
+
+          run_aws() {
+            local label="$1"
+            shift
+            echo "=== ${label} ==="
+            local output
+            if ! output=$("$@" 2>&1); then
+              echo "$output"
+              echo "::error::${label} failed: ${output}"
+              exit 1
+            fi
+            echo "$output"
+          }
+
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           BUCKET="ttn-devops-assignment-${ACCOUNT_ID}"
           URL="http://${BUCKET}.s3-website-${AWS_REGION}.amazonaws.com"
+          echo "Account ${ACCOUNT_ID}, bucket ${BUCKET}"
 
           if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION"
+            # us-east-1 rejects LocationConstraint; do not pass --region here.
+            run_aws "Create bucket" aws s3api create-bucket --bucket "$BUCKET"
           fi
 
-          aws s3api put-public-access-block \
+          run_aws "Allow public access" aws s3api put-public-access-block \
             --bucket "$BUCKET" \
             --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
 
-          aws s3api put-bucket-website \
+          run_aws "Enable website hosting" aws s3api put-bucket-website \
             --bucket "$BUCKET" \
             --website-configuration '{"IndexDocument":{"Suffix":"index.html"},"ErrorDocument":{"Key":"index.html"}}'
 
-          aws s3api put-bucket-policy --bucket "$BUCKET" --policy "{
+          run_aws "Set public read policy" aws s3api put-bucket-policy --bucket "$BUCKET" --policy "{
             \"Version\": \"2012-10-17\",
             \"Statement\": [{
               \"Sid\": \"PublicReadGetObject\",
@@ -93,7 +109,7 @@ jobs:
             }]
           }"
 
-          aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public"
+          run_aws "Upload website files" aws s3 sync dist/ "s3://${BUCKET}" --delete --cache-control "max-age=60,public"
 
           echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
